@@ -1,5 +1,5 @@
 import gym
-import chess_gym
+import obm_gym
 import search
 
 env = gym.make("Chess-v0")
@@ -14,7 +14,7 @@ viewer = rendering.SimpleImageViewer()
 while not terminal:
     # action = env.action_space.sample()
     tree = search.MonteCarloTreeSearch(env)
-    action = tree.search(simulations_number=250, total_simulation_seconds=None)
+    action = tree.search(simulations_number=100, total_simulation_seconds=None)
     observation, reward, terminal, info = env.step(action)
     img = env.render(mode='rgb_array')
     viewer.imshow(img)

@@ -79,11 +79,11 @@ class MonteCarloTreeSearchNode(ABC):
 
     @property
     def previous_player(self):      
-        return self.game_state.action_space.previous_player
+        return self.game_state.previous_player
 
     @property
     def current_player(self):      
-        return self.game_state.action_space.current_player
+        return self.game_state.current_player
 
     @property
     def q(self):
@@ -111,13 +111,14 @@ class MonteCarloTreeSearchNode(ABC):
     # Rollout can use environment step. 
     def simulation(self):
         current_simulation_game_state = copy.deepcopy(self.game_state)
-        done, quality = current_simulation_game_state.is_done(), 0
+        done = current_simulation_game_state.game_result() is not None
+        quality = 0
         while not done:
             possible_moves = current_simulation_game_state.action_space.legal_actions
             action = self.simulation_policy(possible_moves)
             observation, rew, done, info = current_simulation_game_state.step(action)
             quality += rew
-        return current_simulation_game_state.winning_player(), float(quality)
+        return current_simulation_game_state.game_result(), float(quality)
 
     def backpropagate(self, winning_player, quality):
         self._number_of_visits += 1.
@@ -136,7 +137,7 @@ class MonteCarloTreeSearchNode(ABC):
             return child_node, is_leaf
 
         child_node = self.best_child(c_param)
-        is_leaf = child_node.game_state.is_done()
+        is_leaf = child_node.game_state.game_result() is not None
         return child_node, is_leaf 
 
     def best_child(self, c_param=1.4):
