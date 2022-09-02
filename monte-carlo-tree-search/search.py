@@ -40,6 +40,7 @@ class MonteCarloTreeSearch(object):
             assert(total_simulation_seconds is not None)
             end_time = time.time() + total_simulation_seconds
             while True:
+                self.game_state.set_string_representation(self.init_state)
                 v = self._select()
                 winning_player, quality = v.simulation()
                 v.backpropagate(winning_player, quality)
@@ -47,11 +48,12 @@ class MonteCarloTreeSearch(object):
                     break
         else :
             for _ in range(0, simulations_number):            
+                self.game_state.set_string_representation(self.init_state)
                 v = self._select()
                 winning_player, quality = v.simulation()
                 v.backpropagate(winning_player, quality)
         # to select best child go for exploitation only
-        child_node = self.root.best_child(c_param=0.)
+        child_node = self.root.select_child(c_param=0.)
         action = child_node.previous_action
 
         self.game_state.set_string_representation(self.init_state)
@@ -63,9 +65,9 @@ class MonteCarloTreeSearch(object):
         -------
         """
         current_node = self.root
-        at_leaf = current_node.game_state.game_result() is None
-        while not at_leaf:
-            current_node, at_leaf = current_node.select_child()
+        while not current_node.is_leaf():
+            current_node = current_node.select_child()
+        current_node.expand()
         return current_node
 
 class MonteCarloTreeSearchNode(ABC):
@@ -81,12 +83,12 @@ class MonteCarloTreeSearchNode(ABC):
         self.game_state = game_state
         self.hash_state = self.game_state.get_string_representation()
         self.parent = parent
-        self._current_player = self.game_state.current_player
         self.children = []
+        self.is_done = self.game_state.game_result() is not None
         
+        self._current_player = self.game_state.current_player
         self._number_of_visits = 0.
         self._quality = defaultdict(int)
-        self._untried_children = None
         self.previous_action = None
 
     @property
@@ -100,8 +102,6 @@ class MonteCarloTreeSearchNode(ABC):
     @property
     def q(self):
         # Want quality value that makes the parent win because quality is found for each child
-        # self.game_state.set_string_representation(self.hash_state)
-        # todo: fix this dumb thing. why do I need the above line????
         wins = self._quality[self.parent.current_player]
         loses = self._quality[self.parent.previous_player]
         return wins - loses
@@ -110,13 +110,10 @@ class MonteCarloTreeSearchNode(ABC):
     def n(self):
         return self._number_of_visits
 
-    @property
-    def untried_children(self):  
-        # Current node will have all legal moves generated in initialization.    
-        if self._untried_children is None:
-            self.game_state.set_string_representation(self.hash_state)
-            self._untried_children = self.game_state.action_space.legal_actions
-        return self._untried_children
+    def ucb(self, c_param):
+        if self.n == 0:
+            return np.inf
+        return (self.q / self.n) + c_param * np.sqrt((np.log(self.parent.n) / self.n))
 
     def simulation_policy(self, possible_moves):        
         # IDEA: Rollout done with lstm or transformer. 
@@ -126,8 +123,7 @@ class MonteCarloTreeSearchNode(ABC):
 
     # Rollout can use environment step. 
     def simulation(self):
-        self.game_state.set_string_representation(self.hash_state)
-        done = self.game_state.game_result() is not None
+        done = self.is_done
         quality = done
         while not done:
             possible_moves = self.game_state.action_space.legal_actions
@@ -144,38 +140,35 @@ class MonteCarloTreeSearchNode(ABC):
         if self.parent: 
             self.parent.backpropagate(winning_player, quality)
 
-    def _expand(self):
-        action = self.untried_children.pop()
-        next_game_state = self.game_state
-        observation, reward, terminal, info = next_game_state.step(action)
+    def expand(self):
+        # at terminal node or already has already been expanded with children  
+        if self.is_done or self.children:
+            return
 
-        child_node = MonteCarloTreeSearchNode(
-            next_game_state, parent=self
-        )
-        child_node.previous_action = action
-        self.children.append(child_node)
-        return child_node, action
+        self.game_state.set_string_representation(self.hash_state)
+
+        # adds a child for every legal move with an initial 
+        # quality value of infinity.
+        for action in self.game_state.action_space.legal_actions:
+            _ = self.game_state.step(action)
+            child = MonteCarloTreeSearchNode(
+                self.game_state, parent=self
+            )
+            child.previous_action = action
+            self.children.append(child)
+            self.game_state.set_string_representation(self.hash_state)
+        
 
     def select_child(self, c_param=1.4):
-        self.game_state.set_string_representation(self.hash_state)
-        is_leaf = None
-        child_node = None
-
-        if len(self.untried_children) != 0:
-            is_leaf = True
-            child_node, action = self._expand()
-            return child_node, is_leaf
-        else:
-            child_node = self.best_child(c_param)
-            is_leaf = child_node.game_state.game_result() is not None
-            return child_node, is_leaf 
-
-    def best_child(self, c_param=1.4):
-        children_weights = [
-            (c.q / c.n) + c_param * np.sqrt((2 * np.log(self.n) / c.n))
-            for c in self.children
-        ]
-        # print('children:', self.children)
-        # print('children weights:', children_weights)
+        # at leaf return self (at terminal node or has no children)
+        if self.is_leaf():
+            return self
+        children_weights = [c.ucb(c_param) for c in self.children]
+        # if c_param==0:
+        #     print('children:', list(zip([c.previous_action for c in self.children], children_weights)), '\n')
+        #     print('children weights:', children_weights)
         child_node = self.children[np.argmax(children_weights)]
         return child_node 
+    
+    def is_leaf(self):
+        return self.is_done or not self.children
