@@ -21,12 +21,14 @@ import search
 env = gym.make("TicTacToe-v0")
 print('reset')
 env.reset()
+# tree = search.MonteCarloTreeSearch(env)
+# action = tree.search(simulations_number=100, total_simulation_seconds=None)
 terminal = False
 while not terminal:
     # action = env.action_space.sample()
     tree = search.MonteCarloTreeSearch(env)
-    action = tree.search(simulations_number=100, total_simulation_seconds=None)
-    print(action)
+    action = tree.search(simulations_number=10, total_simulation_seconds=None)
+    # print(action)
     observation, reward, terminal, info = env.step(action)
     env.render()
 
