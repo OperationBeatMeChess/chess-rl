@@ -1,35 +1,32 @@
 import gym
 import obm_gym
-import search
+import search_ms
 
 env = gym.make("Chess-v0")
 print('reset')
 env.reset()
 terminal = False
+tree = search_ms.MonteCarloTreeSearch(env)
   # Setup and plot image
 from gym.envs.classic_control import rendering
 viewer = rendering.SimpleImageViewer()
 while not terminal:
     # action = env.action_space.sample()
-    tree = search.MonteCarloTreeSearch(env)
     action = tree.search(simulations_number=1000, total_simulation_seconds=None)
     observation, reward, terminal, info = env.step(action)
+    tree.update_tree(action)
     img = env.render(mode='rgb_array')
     viewer.imshow(img)
     # input('waiting...')
 
 # env = gym.make("TicTacToe-v0")
-# print('reset')
 # env.reset()
-# # tree = search.MonteCarloTreeSearch(env)
-# # action = tree.search(simulations_number=100, total_simulation_seconds=None)
+# tree = search_ms.MonteCarloTreeSearch(env)
 # terminal = False
 # while not terminal:
-#     # action = env.action_space.sample()
-#     tree = search.MonteCarloTreeSearch(env)
-#     action = tree.search(simulations_number=1000, total_simulation_seconds=None)
-#     # print(action)
+#     action = tree.search(simulations_number=100, total_simulation_seconds=None)
 #     observation, reward, terminal, info = env.step(action)
+#     tree.update_tree(action)
 #     env.render()
 
 # action = env.action_space.sample()

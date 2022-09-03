@@ -22,12 +22,17 @@ class MonteCarloTreeSearch(object):
         self.game_state = game_state
         self.init_state = self.game_state.get_string_representation()
 
-    def step(self):
+    def update_tree(self, action):
         """
         Takes a step using search and sets the root to be the best child found with search.
         This will maintain the search history for each node.
         """
-        pass
+        legal_actions = list(self.root.legal_actions)
+        c = legal_actions.index(action)
+        
+        self.root = self.root.children[c]
+        self.init_state = self.game_state.get_string_representation()
+
 
     def search(self, simulations_number=None, total_simulation_seconds=None):
         """
