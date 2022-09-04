@@ -2,16 +2,18 @@ import numpy as np
 from collections import defaultdict
 from abc import ABC, abstractmethod
 import gym
+from collections import deque
 
 class MonteCarloTreeSearch(object):
 
-    def __init__(self, game_state):
+    def __init__(self, game_state, nnet):
         """
         Parameters
         ----------
         game_state : gym.Env
         """
         self.game_state = game_state
+        self.nnet = nnet
 
         self._quality_states_actions = {}
         self._number_of_visits_states_actions = {}
@@ -21,46 +23,62 @@ class MonteCarloTreeSearch(object):
 
         self._current_player = {}
         self._previous_player = {}
-    
-    def search(self, init_state, simulations_number=1000):
+
+    def search(self, init_state, simulations_number=10000):
         for itr in range(simulations_number):
             self.game_state.set_string_representation(init_state)
-            self.search_iteration(self.game_state)
+            length = 20
+            traversal_queue = deque(np.array([np.zeros(64) for i in range(length)]), maxlen=length)
+            self.search_iteration(self.game_state, traversal_queue=traversal_queue)
 
         self.game_state.set_string_representation(init_state)
         return self.best_action(init_state, c_param=0.)
 
-    def search_iteration(self, game_state, c_param=1.4):
-        
+    def search_iteration(self, game_state, traversal_queue=None, c_param=1.4):
+
         state = game_state.get_string_representation()
+
+        if traversal_queue is not None:
+            observation = game_state.get_canonical_observaion()
+            traversal_queue.append(observation[0].flatten())
 
         if state not in self._is_terminal_states:
             self._is_terminal_states[state] = game_state.game_result()
-            
+
         if self._is_terminal_states[state] is not None:
             # terminal node
-            return self._is_terminal_states[state]
-        
+            winner = self._is_terminal_states[state]
+            predicted_outcome = 1.
+            return winner, predicted_outcome
+
         if state not in self._legal_actions_states:
             # Leaf node
             self._legal_actions_states[state] = game_state.action_space.legal_actions
             self._number_of_visits_states[state] = 1e-8
             self._current_player[state] = game_state.current_player
             self._previous_player[state] = game_state.previous_player
-            # perform rollout
-            done = False
-            while not done:
-                action = game_state.action_space.sample()
-                observation, rew, done, info = game_state.step(action)
-            return game_state.game_result()
+
+            observation, player_at_leaf = game_state.get_canonical_observaion()
+            # 1 current state wins, -1 previous state wins
+            # predicted_outcome = np.random.rand()
+            # predicted_outcome = self.nnet.predict(np.array(traversal_queue, dtype=np.uint8).reshape((20, 1, 64)))
+            predicted_outcome = self.nnet.predict(np.array(traversal_queue, dtype=np.uint8)[np.newaxis, ...])[-1]
+            # print((observation, player_at_leaf))
+            # print('current player:', player_at_leaf, 'player at start:', game_state.starting_player, 'predicted outcome:', predicted_outcome)
+            predicted_outcome = predicted_outcome  * 2 - 1
+            return player_at_leaf, predicted_outcome
 
         best_action = self.best_action(state, c_param=c_param)
 
         # Traverse to next node in tree
         game_state.step(best_action)
-        r = self.search_iteration(game_state=game_state)
+        player_at_leaf, predicted_outcome = self.search_iteration(
+            game_state=game_state,
+            traversal_queue=traversal_queue)
+
         # result is -1 if previous player won, and 1 if current player won.
-        result = 1. if r==self._current_player[state] else -1. if r==self._previous_player[state] else 0
+        result = predicted_outcome if player_at_leaf == self._current_player[state] else - \
+            predicted_outcome if player_at_leaf == self._previous_player[state] else 0
 
         # Backpropogate the result
         if (best_action, state) in self._quality_states_actions:
@@ -72,7 +90,7 @@ class MonteCarloTreeSearch(object):
             self._number_of_visits_states_actions[(best_action, state)] = 1
 
         self._number_of_visits_states[state] += 1
-        return r
+        return player_at_leaf, predicted_outcome
 
     def best_action(self, state, c_param=1.4):
         best_ucb = -np.inf
