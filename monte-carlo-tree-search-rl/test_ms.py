@@ -13,6 +13,7 @@ viewer = rendering.SimpleImageViewer()
 while not terminal:
     # action = env.action_space.sample()
     observation, reward, terminal, info = tree.step(simulations_number=100)
+    
     img = env.render(mode='rgb_array')
     viewer.imshow(img)
     # input('waiting...')
