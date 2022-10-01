@@ -51,12 +51,14 @@ class MonteCarloTreeSearch(object):
             done = False
             while not done:
                 action = game_state.action_space.sample()
-                observation, rew, done, info = game_state.step(action)
+                game_state.skip_next_human_render()
+                observation, rew, done, truncated, info = game_state.step(action)
             return game_state.game_result()
 
         best_action = self.best_action(state, c_param=c_param)
 
         # Traverse to next node in tree
+        game_state.skip_next_human_render()
         game_state.step(best_action)
         r = self.search_iteration(game_state=game_state)
         # result is -1 if previous player won, and 1 if current player won.

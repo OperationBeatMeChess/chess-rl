@@ -1,29 +1,24 @@
 import gym
-import obm_gym
+import adversarial_gym
 import search
 import time
 import chess
 
-env = gym.make("Chess-v0")
+env = gym.make("Chess-v0", render_mode='human')
 print('reset')
 env.reset()
 env.set_string_representation('2Rqk2r/pp5p/6pb/n2bNp2/8/B5P1/P1Q2PBP/4K2R w - - 0 1')
 # env.set_string_representation('6kR/6P1/8/4K3/8/8/8/8 w - - 0 1')
+env.render()
 terminal = False
 tree = search.MonteCarloTreeSearch(env)
-from gym.envs.classic_control import rendering
-viewer = rendering.SimpleImageViewer()
-img = env.render(mode='rgb_array')
-viewer.imshow(img)
 while not terminal:
     state = env.get_string_representation()
-    action = tree.search(state)
-    observation, reward, terminal, info = env.step(action)
-    img = env.render(mode='rgb_array')
-    viewer.imshow(img)
+    action = tree.search(state, simulations_number=100)
+    observation, reward, terminal, truncated, info = env.step(action)
     # input('waiting...')
 
-# env = gym.make("TicTacToe-v0")
+# env = gym.make("TicTacToe-v0", render_mode='human')
 # print('reset')
 # env.reset()
 # tree = search.MonteCarloTreeSearch(env)
@@ -31,7 +26,7 @@ while not terminal:
 # while not terminal:
 #     state = env.get_string_representation()
 #     action = tree.search(state)
-#     observation, reward, terminal, info = env.step(action)
+#     observation, reward, terminal, truncated, info = env.step(action)
 #     env.render()
 
 # env = gym.make("Chess-v0")

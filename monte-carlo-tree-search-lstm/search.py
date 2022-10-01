@@ -24,23 +24,22 @@ class MonteCarloTreeSearch(object):
         self._current_player = {}
         self._previous_player = {}
 
-    def search(self, init_state, simulations_number=10000):
+    def search(self, init_state, init_obs, simulations_number=10000):
         for itr in range(simulations_number):
             self.game_state.set_string_representation(init_state)
             length = 20
             traversal_queue = deque(np.array([np.zeros(64) for i in range(length)]), maxlen=length)
-            self.search_iteration(self.game_state, traversal_queue=traversal_queue)
+            self.search_iteration(self.game_state, game_obs=init_obs, traversal_queue=traversal_queue)
 
         self.game_state.set_string_representation(init_state)
         return self.best_action(init_state, c_param=0.)
 
-    def search_iteration(self, game_state, traversal_queue=None, c_param=1.4):
+    def search_iteration(self, game_state, game_obs, traversal_queue=None, c_param=1.4):
 
         state = game_state.get_string_representation()
 
         if traversal_queue is not None:
-            observation = game_state.get_canonical_observaion()
-            traversal_queue.append(observation[0].flatten())
+            traversal_queue.append(game_obs[0].flatten())
 
         if state not in self._is_terminal_states:
             self._is_terminal_states[state] = game_state.game_result()
@@ -58,7 +57,8 @@ class MonteCarloTreeSearch(object):
             self._current_player[state] = game_state.current_player
             self._previous_player[state] = game_state.previous_player
 
-            observation, player_at_leaf = game_state.get_canonical_observaion()
+            # player_at_leaf = game_obs[1] 
+            player_at_leaf = self._current_player[state]
 
             # 1 current state wins, -1 previous state wins
             predicted_outcome = np.random.rand()
@@ -72,9 +72,11 @@ class MonteCarloTreeSearch(object):
         best_action = self.best_action(state, c_param=c_param)
 
         # Traverse to next node in tree
-        game_state.step(best_action)
+        game_state.skip_next_human_render()
+        observation, reward, terminated, truncated, info = game_state.step(best_action)
         player_at_leaf, predicted_outcome = self.search_iteration(
             game_state=game_state,
+            game_obs=observation,
             traversal_queue=traversal_queue)
 
         # result is -1 if previous player won, and 1 if current player won.
