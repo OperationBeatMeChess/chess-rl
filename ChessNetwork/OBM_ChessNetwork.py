@@ -19,14 +19,16 @@ class Chess42069Network(nn.Module):
     def __init__(self, hidden_dim: int, device = 'cpu', base_lr = 0.0009, max_lr = 0.002):
         super().__init__()
         
-        self.swin_transformer = timm.create_model('swin_tiny_patch4_window7_224', pretrained=False, 
-                                                  img_size=8, patch_size=1, window_size=2, in_chans=1).to(device)
+        self.backbone = timm.create_model('tnt_b_patch16_224', pretrained=False, 
+                                                  img_size=8, patch_size=8, in_chans=1).to(device)
         self.hidden_dim = hidden_dim
         self.action_dim = 4672
 
+        print(self.backbone.head.in_features)
+
         # Policy head
         self.policy_head = nn.Sequential(
-            nn.Linear(self.swin_transformer.head.in_features, hidden_dim),
+            nn.Linear(self.backbone.head.in_features*2, hidden_dim),
             nn.Dropout(0.1),
             nn.RReLU(),
             nn.Linear(hidden_dim, self.action_dim),
@@ -35,7 +37,7 @@ class Chess42069Network(nn.Module):
         
         # Value head
         self.value_head = nn.Sequential(
-            nn.Linear(self.swin_transformer.head.in_features, hidden_dim),
+            nn.Linear(self.backbone.head.in_features*2, hidden_dim),
             nn.Dropout(0.1),
             nn.RReLU(),
             nn.Linear(hidden_dim, 1),
@@ -49,7 +51,11 @@ class Chess42069Network(nn.Module):
         self.scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=base_lr, max_lr=max_lr)
     
     def forward(self, x):
-        features = self.swin_transformer.forward_features(x)
+        features = self.backbone.forward_features(x)
+        
+        # Models like Swin output (batch, 1, features) but other models output (batch, N, features).
+        # Reshape to (batch, total_features) for the prediction heads.
+        features = features.view(features.shape[0], -1)
         action_logits = self.policy_head(features)
         board_val = self.value_head(features)
         return action_logits, board_val
