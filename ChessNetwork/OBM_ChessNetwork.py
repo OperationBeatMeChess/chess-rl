@@ -1,8 +1,48 @@
+import random
+from adversarial_gym.chess_env import ChessEnv
 import torch
 from torch import nn, optim
 import timm
 import numpy as np
 
+from torch.cuda.amp import GradScaler
+from torch.cuda.amp import autocast
+
+class GatedLinearUnit(nn.Module):
+    def __init__(self, input_features, output_features):
+        super(GatedLinearUnit, self).__init__()
+        self.linear= nn.Linear(input_features, output_features)
+        self.gate_creator = nn.Linear(input_features, output_features)
+
+    def forward(self, input_tensor):
+        out = self.linear(input_tensor)
+        gate = torch.sigmoid(self.gate_creator(input_tensor))
+        return out * gate
+    
+
+class ResidualBlock(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Linear(dim, dim),
+            nn.RReLU(),
+            nn.Linear(dim, dim),
+        )
+
+    def forward(self, x):
+        return self.block(x) + x
+    
+class FeatureAttention(nn.Module):
+    def __init__(self, in_dim):
+        super().__init__()
+        self.in_dim = in_dim
+        self.linear = nn.Linear(in_dim, in_dim)
+
+    def forward(self, x):
+        attn_scores = torch.sigmoid(self.linear(x))
+        x = x * attn_scores
+        return x    
+    
 
 class Chess42069Network(nn.Module):
     """
@@ -19,16 +59,18 @@ class Chess42069Network(nn.Module):
     def __init__(self, hidden_dim: int, device = 'cpu', base_lr = 0.0009, max_lr = 0.002):
         super().__init__()
         
-        self.backbone = timm.create_model('tnt_b_patch16_224', pretrained=False, 
-                                                  img_size=8, patch_size=8, in_chans=1).to(device)
+        # self.backbone = timm.create_model('tnt_b_patch16_224', pretrained=False, 
+        #                                           img_size=8, patch_size=8, in_chans=1).to(device)
+        # self.swin_transformer = timm.create_model('swin_tiny_patch4_window7_224', pretrained=False, 
+        #                                           img_size=8, patch_size=1, window_size=2, in_chans=1).to(device)
+        self.backbone = timm.create_model('twins_svt_small', pretrained=False, 
+                                                img_size=8, patch_size=1, in_chans=1).to(device)
         self.hidden_dim = hidden_dim
         self.action_dim = 4672
 
-        print(self.backbone.head.in_features)
-
         # Policy head
         self.policy_head = nn.Sequential(
-            nn.Linear(self.backbone.head.in_features*2, hidden_dim),
+            nn.Linear(self.backbone.head.in_features, hidden_dim),
             nn.Dropout(0.1),
             nn.RReLU(),
             nn.Linear(hidden_dim, self.action_dim),
@@ -37,8 +79,87 @@ class Chess42069Network(nn.Module):
         
         # Value head
         self.value_head = nn.Sequential(
-            nn.Linear(self.backbone.head.in_features*2, hidden_dim),
+            nn.Linear(self.backbone.head.in_features, hidden_dim),
             nn.Dropout(0.1),
+            nn.RReLU(),
+            nn.Linear(hidden_dim, 1),
+            nn.Tanh()
+        ).to(device)
+
+        # # Policy head
+        # self.policy_head = nn.Sequential(
+        #     GatedLinearUnit(self.swin_transformer.head.in_features, hidden_dim),
+        #     ResidualBlock(hidden_dim),
+        #     nn.Dropout(0.1),
+        #     FeatureAttention(hidden_dim),
+        #     nn.RReLU(),
+        #     nn.Linear(hidden_dim, self.action_dim),
+        #     # nn.Softmax(dim=-1)
+        # ).to(device)
+        
+        # # Value head
+        # self.value_head = nn.Sequential(
+        #     GatedLinearUnit(self.swin_transformer.head.in_features, hidden_dim),
+        #     ResidualBlock(hidden_dim),
+        #     nn.Dropout(0.1),
+        #     FeatureAttention(hidden_dim),
+        #     nn.RReLU(),
+        #     nn.Linear(hidden_dim, 1),
+        #     nn.Tanh()
+        # ).to(device)
+        
+        self.val_loss = nn.MSELoss()
+        self.policy_loss = nn.CrossEntropyLoss()
+        # Need lr scheduler
+        self.optimizer = torch.optim.SGD(self.parameters(), lr=base_lr)
+        self.scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=base_lr, max_lr=max_lr)
+    
+    def forward(self, x):
+        features = self.backbone.forward_features(x)
+        # Models like Swin output (batch, 1, features) but other models output (batch, N, features).
+        # Reshape to (batch, total_features) for the prediction heads.
+        features = features.view(features.shape[0], -1)
+        action_logits = self.policy_head(features)
+        board_val = self.value_head(features)
+        return action_logits, board_val
+
+    def get_action(self, state, legal_moves):
+        features = self.swin_transformer.forward_features(state)
+        features = features.view(features.shape[0], -1)
+        policy_logits = self.policy_head(features)
+        policy_probs = torch.nn.functional.softmax(policy_logits, dim=-1)
+        policy_probs = policy_probs.detach().cpu().numpy()
+
+        legal_actions = [ChessEnv.move_to_action(move) for move in legal_moves]
+
+        top_n = 0
+        while (best_action := np.argpartition(policy_probs.flatten(), -top_n)[-top_n]) not in legal_actions:
+           top_n += 1
+        return best_action
+
+class Chess42069NetworkSimple(nn.Module):
+    def __init__(self, hidden_dim: int, device = 'cpu', base_lr = 0.0009, max_lr = 0.002):
+        super().__init__()
+        
+        self.swin_transformer = timm.create_model('swin_tiny_patch4_window7_224', pretrained=False, 
+                                                  img_size=8, patch_size=1, window_size=2, in_chans=1).to(device)
+        self.hidden_dim = hidden_dim
+        self.action_dim = 4672
+        self.device = device
+
+        self.grad_scaler = GradScaler()
+
+        # Policy head
+        self.policy_head = nn.Sequential(
+            nn.Linear(self.swin_transformer.head.in_features, hidden_dim),
+            nn.RReLU(),
+            nn.Linear(hidden_dim, self.action_dim),
+            # nn.Softmax(dim=-1)
+        ).to(device)
+        
+        # Value head
+        self.value_head = nn.Sequential(
+            nn.Linear(self.swin_transformer.head.in_features, hidden_dim),
             nn.RReLU(),
             nn.Linear(hidden_dim, 1),
             nn.Tanh()
@@ -51,16 +172,121 @@ class Chess42069Network(nn.Module):
         self.scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=base_lr, max_lr=max_lr)
     
     def forward(self, x):
-        features = self.backbone.forward_features(x)
-        
-        # Models like Swin output (batch, 1, features) but other models output (batch, N, features).
-        # Reshape to (batch, total_features) for the prediction heads.
-        features = features.view(features.shape[0], -1)
+        if isinstance(x, np.ndarray):
+            x = torch.as_tensor(x, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device)
+        features = self.swin_transformer.forward_features(x).requires_grad_(True)
         action_logits = self.policy_head(features)
         board_val = self.value_head(features)
         return action_logits, board_val
 
-    def get_action(self, action):
-        policy_output = torch.nn.functional.softmax(policy_output, dim=-1)
-        action = policy_output.argmax().item()
-        return action
+
+    # def get_action(self, action):
+    #     policy_output = torch.nn.functional.softmax(policy_output, dim=-1)
+    #     action = policy_output.argmax().item()
+    #     return action
+
+    def to_action(self, action_logits, legal_moves, top_n):
+        """ Takes output action logits from network and randomly samples from top_n legal actions """
+        legal_actions = [ChessEnv.move_to_action(move) for move in legal_moves]
+
+        if len(legal_actions) < top_n: top_n = len(legal_actions)
+
+        action_probs = torch.nn.functional.log_softmax(action_logits, dim=-1)
+        action_probs_np = action_probs.detach().cpu().numpy().flatten()
+
+        # Set non legal-actions to = -inf so they aren't considered
+        mask = np.ones(action_probs_np.shape, bool)
+        mask[legal_actions] = False
+        action_probs_np[mask] = -np.inf
+
+        # sample from indices of the top-n policy probs
+        top_n_indices = np.argpartition(action_probs_np, -top_n)[-top_n:]
+        action = np.random.choice(top_n_indices)
+        
+        log_prob = action_probs.flatten()[action]
+        return action, log_prob
+
+    def get_action(self, state, legal_moves, sample_n=1):
+        state = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device).requires_grad_(True)
+        features = self.swin_transformer.forward_features(state).requires_grad_(True)
+        features = features.view(features.shape[0], -1)
+        policy_logits = self.policy_head(features)
+        policy_probs = torch.nn.functional.log_softmax(policy_logits, dim=-1)
+        policy_probs_np = policy_probs.detach().cpu().numpy().flatten()
+
+        legal_actions = [ChessEnv.move_to_action(move) for move in legal_moves]
+
+        if len(legal_actions) < sample_n: sample_n = len(legal_actions)
+
+
+        # Set non legal-actions to = -inf so they aren't considered
+        mask = np.ones(policy_probs_np.shape, bool)
+        mask[legal_actions] = False
+        policy_probs_np[mask] = -np.inf
+
+        # sample from indices of the top-n policy probs
+        top_n_indices = np.argpartition(policy_probs_np, -sample_n)[-sample_n:]
+        action = np.random.choice(top_n_indices)
+        
+        log_prob = policy_probs.flatten()[action]
+        return action, log_prob
+
+    def update_policy(self, log_probs, rewards):
+        self.freeze(self.value_head)
+        discounted_rewards = []
+        for t in range(len(rewards)):
+            G_t = 0
+            for r in rewards[t:]: # Already discounted
+                G_t += r
+            discounted_rewards.append(G_t)
+
+        policy_gradient = []
+        for log_prob, G_t in zip(log_probs, discounted_rewards):
+            policy_gradient.append(-log_prob * G_t)
+        
+        policy_loss = torch.stack(policy_gradient).sum()
+ 
+
+        # AMP with gradient clipping
+        self.optimizer.zero_grad()
+        self.grad_scaler.scale(policy_loss).backward()
+        self.grad_scaler.unscale_(self.optimizer)
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+        self.grad_scaler.step(self.optimizer)
+        self.grad_scaler.update()
+
+
+        # self.optimizer.zero_grad()
+        # policy_gradient = torch.stack(policy_gradient).sum()
+        # policy_gradient.backward() 
+        # self.optimizer.step() 
+        
+        self.unfreeze(self.value_head)
+
+    def freeze(self, model):
+        for param in model.parameters():
+            param.requires_grad = False
+    
+    def unfreeze(self, model):
+        for param in model.parameters():
+            param.requires_grad = True
+     
+    def update_network(self, log_probs, rewards, values, next_values, done_mask, gamma=0.99):
+        # Calculate advantages for policy loss
+        advantages = rewards + gamma * next_values * (1 - done_mask) - values
+        policy_loss = -(log_probs * advantages.detach()).mean()
+
+        # Calculate targets for value loss
+        targets = rewards + gamma * next_values * (1 - done_mask)
+        value_loss = (targets.detach() - values).pow(2).mean()
+
+        # Sum losses
+        total_loss = policy_loss + value_loss
+
+        # Backward pass and optimization
+        self.optimizer.zero_grad()
+        self.grad_scaler.scale(total_loss).backward()
+        self.grad_scaler.unscale_(self.optimizer)
+        torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+        self.grad_scaler.step(self.optimizer)
+        self.grad_scaler.update()
