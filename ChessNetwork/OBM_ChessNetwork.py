@@ -271,9 +271,11 @@ class Chess42069NetworkSimple(nn.Module):
         for param in model.parameters():
             param.requires_grad = True
      
-    def update_network(self, log_probs, rewards, values, next_values, done_mask, gamma=0.99):
+    def update_network(self, log_probs, rewards, values, next_values, done_mask, gamma=0.99, selfplay=True):
         # Calculate advantages for policy loss
+        next_values = -next_values if selfplay else next_values
         advantages = rewards + gamma * next_values * (1 - done_mask) - values
+        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
         policy_loss = -(log_probs * advantages.detach()).mean()
 
         # Calculate targets for value loss
