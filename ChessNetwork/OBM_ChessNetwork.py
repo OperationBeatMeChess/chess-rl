@@ -167,23 +167,18 @@ class Chess42069NetworkSimple(nn.Module):
         
         self.val_loss = nn.MSELoss()
         self.policy_loss = nn.CrossEntropyLoss()
-        # Need lr scheduler
+
         self.optimizer = torch.optim.SGD(self.parameters(), lr=base_lr)
         self.scheduler = torch.optim.lr_scheduler.CyclicLR(self.optimizer, base_lr=base_lr, max_lr=max_lr)
     
     def forward(self, x):
         if isinstance(x, np.ndarray):
+            # Assuming its 8x8 array. Convert to (1,1,8,8) tensor
             x = torch.as_tensor(x, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device)
         features = self.swin_transformer.forward_features(x).requires_grad_(True)
         action_logits = self.policy_head(features)
         board_val = self.value_head(features)
         return action_logits, board_val
-
-
-    # def get_action(self, action):
-    #     policy_output = torch.nn.functional.softmax(policy_output, dim=-1)
-    #     action = policy_output.argmax().item()
-    #     return action
 
     def to_action(self, action_logits, legal_moves, top_n):
         """ Takes output action logits from network and randomly samples from top_n legal actions """
@@ -206,30 +201,29 @@ class Chess42069NetworkSimple(nn.Module):
         log_prob = action_probs.flatten()[action]
         return action, log_prob
 
-    def get_action(self, state, legal_moves, sample_n=1):
-        state = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device).requires_grad_(True)
-        features = self.swin_transformer.forward_features(state).requires_grad_(True)
-        features = features.view(features.shape[0], -1)
-        policy_logits = self.policy_head(features)
-        policy_probs = torch.nn.functional.log_softmax(policy_logits, dim=-1)
-        policy_probs_np = policy_probs.detach().cpu().numpy().flatten()
+    # def get_action(self, state, legal_moves, sample_n=1):
+    #     state = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device).requires_grad_(True)
+    #     features = self.swin_transformer.forward_features(state).requires_grad_(True)
+    #     features = features.view(features.shape[0], -1)
+    #     policy_logits = self.policy_head(features)
+    #     policy_probs = torch.nn.functional.log_softmax(policy_logits, dim=-1)
+    #     policy_probs_np = policy_probs.detach().cpu().numpy().flatten()
 
-        legal_actions = [ChessEnv.move_to_action(move) for move in legal_moves]
+    #     legal_actions = [ChessEnv.move_to_action(move) for move in legal_moves]
 
-        if len(legal_actions) < sample_n: sample_n = len(legal_actions)
+    #     if len(legal_actions) < sample_n: sample_n = len(legal_actions)
 
+    #     # Set non legal-actions to = -inf so they aren't considered
+    #     mask = np.ones(policy_probs_np.shape, bool)
+    #     mask[legal_actions] = False
+    #     policy_probs_np[mask] = -np.inf
 
-        # Set non legal-actions to = -inf so they aren't considered
-        mask = np.ones(policy_probs_np.shape, bool)
-        mask[legal_actions] = False
-        policy_probs_np[mask] = -np.inf
-
-        # sample from indices of the top-n policy probs
-        top_n_indices = np.argpartition(policy_probs_np, -sample_n)[-sample_n:]
-        action = np.random.choice(top_n_indices)
+    #     # sample from indices of the top-n policy probs
+    #     top_n_indices = np.argpartition(policy_probs_np, -sample_n)[-sample_n:]
+    #     action = np.random.choice(top_n_indices)
         
-        log_prob = policy_probs.flatten()[action]
-        return action, log_prob
+    #     log_prob = policy_probs.flatten()[action]
+    #     return action, log_prob
 
     def update_policy(self, log_probs, rewards):
         self.freeze(self.value_head)
@@ -246,7 +240,6 @@ class Chess42069NetworkSimple(nn.Module):
         
         policy_loss = torch.stack(policy_gradient).sum()
  
-
         # AMP with gradient clipping
         self.optimizer.zero_grad()
         self.grad_scaler.scale(policy_loss).backward()
@@ -254,12 +247,6 @@ class Chess42069NetworkSimple(nn.Module):
         torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
         self.grad_scaler.step(self.optimizer)
         self.grad_scaler.update()
-
-
-        # self.optimizer.zero_grad()
-        # policy_gradient = torch.stack(policy_gradient).sum()
-        # policy_gradient.backward() 
-        # self.optimizer.step() 
         
         self.unfreeze(self.value_head)
 
