@@ -201,29 +201,31 @@ class Chess42069NetworkSimple(nn.Module):
         log_prob = action_probs.flatten()[action]
         return action, log_prob
 
-    # def get_action(self, state, legal_moves, sample_n=1):
-    #     state = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device).requires_grad_(True)
-    #     features = self.swin_transformer.forward_features(state).requires_grad_(True)
-    #     features = features.view(features.shape[0], -1)
-    #     policy_logits = self.policy_head(features)
-    #     policy_probs = torch.nn.functional.log_softmax(policy_logits, dim=-1)
-    #     policy_probs_np = policy_probs.detach().cpu().numpy().flatten()
-
-    #     legal_actions = [ChessEnv.move_to_action(move) for move in legal_moves]
-
-    #     if len(legal_actions) < sample_n: sample_n = len(legal_actions)
-
-    #     # Set non legal-actions to = -inf so they aren't considered
-    #     mask = np.ones(policy_probs_np.shape, bool)
-    #     mask[legal_actions] = False
-    #     policy_probs_np[mask] = -np.inf
-
-    #     # sample from indices of the top-n policy probs
-    #     top_n_indices = np.argpartition(policy_probs_np, -sample_n)[-sample_n:]
-    #     action = np.random.choice(top_n_indices)
+    def get_action(self, state, legal_moves, sample_n=1):
+        state = torch.as_tensor(state, dtype=torch.float32).unsqueeze(0).unsqueeze(0).to(self.device).requires_grad_(True)
         
-    #     log_prob = policy_probs.flatten()[action]
-    #     return action, log_prob
+        features = self.swin_transformer.forward_features(state).requires_grad_(True)
+        features = features.view(features.shape[0], -1)
+        
+        policy_logits = self.policy_head(features)
+        policy_probs = torch.nn.functional.log_softmax(policy_logits, dim=-1)
+        policy_probs_np = policy_probs.detach().cpu().numpy().flatten()
+
+        legal_actions = [ChessEnv.move_to_action(move) for move in legal_moves]
+
+        if len(legal_actions) < sample_n: sample_n = len(legal_actions)
+
+        # Set non legal-actions to = -inf so they aren't considered
+        mask = np.ones(policy_probs_np.shape, bool)
+        mask[legal_actions] = False
+        policy_probs_np[mask] = -np.inf
+
+        # sample from indices of the top-n policy probs
+        top_n_indices = np.argpartition(policy_probs_np, -sample_n)[-sample_n:]
+        action = np.random.choice(top_n_indices)
+        
+        log_prob = policy_probs.flatten()[action]
+        return action, log_prob
 
     def update_policy(self, log_probs, rewards):
         self.freeze(self.value_head)
