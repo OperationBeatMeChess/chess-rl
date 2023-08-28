@@ -8,6 +8,7 @@ import numpy as np
 from torch.cuda.amp import GradScaler
 from torch.cuda.amp import autocast
 
+
 class GatedLinearUnit(nn.Module):
     def __init__(self, input_features, output_features):
         super(GatedLinearUnit, self).__init__()
@@ -19,7 +20,6 @@ class GatedLinearUnit(nn.Module):
         gate = torch.sigmoid(self.gate_creator(input_tensor))
         return out * gate
     
-
 class ResidualBlock(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -44,7 +44,7 @@ class FeatureAttention(nn.Module):
         return x    
     
 
-class Chess42069Network(nn.Module):
+class ChessNetwork(nn.Module):
     """
     Creates an OBM ChessNetwork that outputs a value and action for a given
     state/position. 
@@ -137,7 +137,7 @@ class Chess42069Network(nn.Module):
            top_n += 1
         return best_action
 
-class Chess42069NetworkSimple(nn.Module):
+class ChessNetworkSimple(nn.Module):
     def __init__(self, hidden_dim: int, device = 'cpu', base_lr = 0.0009, max_lr = 0.002):
         super().__init__()
         

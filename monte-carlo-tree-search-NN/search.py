@@ -26,6 +26,16 @@ class MonteCarloTreeSearch:
         self._current_player = {}
         self._previous_player = {}
 
+    def __getstate__(self):
+        # NOTE: from pickling docs. Removes nnet (unpickleable)
+        # Copy the object's state from self.__dict__ which contains
+        # all our instance attributes. Always use the dict.copy()
+        # method to avoid modifying the original state.
+        state = self.__dict__.copy()
+        # Remove the unpicklable entries.
+        del state['nnet']
+        return state
+
     def search(self, init_state, init_obs, simulations_number=10_000):
         for itr in range(simulations_number):
             self.game_state.set_string_representation(init_state)
