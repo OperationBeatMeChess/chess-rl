@@ -17,27 +17,32 @@ env.render()
 SAVEPATH = '/home/kage/chess_workspace/chess-rl/monte-carlo-tree-search-NN'
 MODEL_SAVEPATH = os.path.join(SAVEPATH, 'mcts_simplerSwinChessNet.pt')
 
-# Initialize model
+# Initialize model and tree
 MODEL_PATH = '/home/kage/chess_workspace/simpler_SwinChessNet42069.pt'
+# TREE_PATH = None
+TREE_PATH = '/home/kage/chess_workspace/chess-rl/monte-carlo-tree-search-NN/mcts_tree'
 
 model = ChessNetworkSimple(hidden_dim=256, device='cuda')
 model.load_state_dict(torch.load(MODEL_PATH))
 model = model.to('cuda')
-model.eval()
 
 grad_scaler = GradScaler()
-# model = None
 terminal = False
-tree = MonteCarloTreeSearch(env, model)
+
+if TREE_PATH is not None:
+    tree = pickle.load(TREE_PATH)
+    tree.nnet = model
+else:
+    tree = MonteCarloTreeSearch(env, model) if TREE_PATH is None else pickle.load(TREE_PATH)
 
 # Gather Data
 NUM_GAMES = 1
 for _ in range(NUM_GAMES):    
     while not terminal:
-        print("step")
         state = env.get_string_representation()
+        model.eval()
         action, value = tree.search(state, observation)
-
+        model.train()
         with autocast():   
             policy_output, value_output = model(observation[0]) # 8x8 => 1x8x8
             policy_loss = model.policy_loss(policy_output.squeeze(), torch.tensor(action).to('cuda'))
@@ -45,6 +50,7 @@ for _ in range(NUM_GAMES):
             loss = policy_loss + value_loss
             
         print(f"current loss is: {loss}")
+        
         # AMP with gradient clipping
         model.optimizer.zero_grad()
         grad_scaler.scale(loss).backward()
