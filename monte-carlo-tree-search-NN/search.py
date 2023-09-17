@@ -42,10 +42,10 @@ class MonteCarloTreeSearch:
             # length = 20
             # traversal_queue = deque(np.array([np.zeros(64) for i in range(length)]), maxlen=length)
             traversal_queue = None
-            self.search_iteration(self.game_state, game_obs=init_obs, traversal_queue=traversal_queue)
+            _, pred_outcome = self.search_iteration(self.game_state, game_obs=init_obs, traversal_queue=traversal_queue)
 
         self.game_state.set_string_representation(init_state)
-        return self.best_action(init_state, c_param=0.)
+        return self.best_action(init_state, c_param=0.), pred_outcome
 
     def search_iteration(self, game_state, game_obs, traversal_queue=None, c_param=1.4):
 

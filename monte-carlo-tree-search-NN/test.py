@@ -26,7 +26,7 @@ NUM_GAMES = 100
 for _ in range(NUM_GAMES):    
     while not terminal:
         state = env.get_string_representation()
-        action = tree.search(state, observation[0])
+        action, value = tree.search(state, observation[0])
         observation, reward, terminal, truncated, info = env.step(action)
 
 env.close()
