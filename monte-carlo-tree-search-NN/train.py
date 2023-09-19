@@ -34,7 +34,7 @@ model = model.to(DEVICE)
 # Initialize tree
 # TREE_PATH = None
 TREE_PATH = '/home/kage/chess_workspace/chess-rl/monte-carlo-tree-search-NN/mcts_tree_1.pkl'
-
+TREE_SAVEPATH = os.path.join(TREE_PATH, 'mcts_tree.pkl')
 if TREE_PATH is None:
     tree = MonteCarloTreeSearch(env, model)
 else:
@@ -78,15 +78,11 @@ for g in range(NUM_GAMES):
         observation, reward, terminal, truncated, info = env.step(action)
         
         gstep += 1
+    
+    # Save model and pickle tree
+    torch.save(model.state_dict(), MODEL_SAVEPATH) 
+
+    with open(TREE_SAVEPATH, 'wb') as f:  # open a text file
+         pickle.dump(tree, f) # serialize the list
 
 env.close()
-
-# Save model and pickle tree
-torch.save(model.state_dict(), MODEL_SAVEPATH)
-
-tree_name = f"mcts_tree_{NUM_GAMES}.pkl"
-tree_savepath = os.path.join(SAVEPATH, tree_name)
-
-with open(tree_savepath, 'wb') as f:  # open a text file
-    pickle.dump(tree, f) # serialize the list
-
