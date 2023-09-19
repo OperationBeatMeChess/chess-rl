@@ -42,10 +42,10 @@ class MonteCarloTreeSearch:
             # length = 20
             # traversal_queue = deque(np.array([np.zeros(64) for i in range(length)]), maxlen=length)
             traversal_queue = None
-            _, pred_outcome = self.search_iteration(self.game_state, game_obs=init_obs, traversal_queue=traversal_queue)
+            self.search_iteration(self.game_state, game_obs=init_obs, traversal_queue=traversal_queue)
 
         self.game_state.set_string_representation(init_state)
-        return self.best_action(init_state, c_param=0.), pred_outcome
+        return self.best_action(init_state, c_param=0.)
 
     def search_iteration(self, game_state, game_obs, traversal_queue=None, c_param=1.4):
 
@@ -85,7 +85,7 @@ class MonteCarloTreeSearch:
             # predicted_outcome = predicted_outcome  * 2 - 1
             return player_at_leaf, predicted_outcome
 
-        best_action = self.best_action(state, c_param=c_param)
+        best_action, best_ucb = self.best_action(state, c_param=c_param)
 
         # Traverse to next node in tree
         game_state.skip_next_human_render()
@@ -129,4 +129,4 @@ class MonteCarloTreeSearch:
                 best_ucb = ucb
                 best_action = action
 
-        return best_action
+        return best_action, best_ucb
