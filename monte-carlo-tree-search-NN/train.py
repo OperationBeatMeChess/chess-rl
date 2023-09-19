@@ -1,5 +1,5 @@
 import pickle
-
+import wandb
 import numpy as np
 from OBM_ChessNetwork import ChessNetworkSimple
 import gym
@@ -10,34 +10,44 @@ import torch
 from torch.cuda.amp import GradScaler
 from torch.cuda.amp import autocast
 import os 
+
+
+wandb.init(project='Chess')
+
+# Some settings
+NUM_GAMES = 1
+DEVICE = 'cuda'
+SAVEPATH = '/home/kage/chess_workspace/chess-rl/monte-carlo-tree-search-NN'
+
+# Initialize environment
 env = gym.make("Chess-v0")
 observation, info = env.reset()
 env.render()
 
-SAVEPATH = '/home/kage/chess_workspace/chess-rl/monte-carlo-tree-search-NN'
-MODEL_SAVEPATH = os.path.join(SAVEPATH, 'mcts_simplerSwinChessNet.pt')
-
-# Initialize model and tree
+# Initialize model
 MODEL_PATH = '/home/kage/chess_workspace/simpler_SwinChessNet42069.pt'
-TREE_PATH = None
-# TREE_PATH = '/home/kage/chess_workspace/chess-rl/monte-carlo-tree-search-NN/mcts_tree'
-
-model = ChessNetworkSimple(hidden_dim=256, device='cuda')
+MODEL_SAVEPATH = os.path.join(SAVEPATH, 'mcts_simplerSwinChessNet.pt')
+model = ChessNetworkSimple(hidden_dim=256, device=DEVICE)
 model.load_state_dict(torch.load(MODEL_PATH))
-model = model.to('cuda')
+model = model.to(DEVICE)
+
+# Initialize tree
+# TREE_PATH = None
+TREE_PATH = '/home/kage/chess_workspace/chess-rl/monte-carlo-tree-search-NN/mcts_tree_1.pkl'
+
+if TREE_PATH is None:
+    tree = MonteCarloTreeSearch(env, model)
+else:
+    with open(TREE_PATH, 'rb') as f:  # open a text file
+        tree = pickle.load(f)
+    tree.nnet = model
 
 grad_scaler = GradScaler()
+
 terminal = False
-
-if TREE_PATH is not None:
-    tree = pickle.load(TREE_PATH)
-    tree.nnet = model
-else:
-    tree = MonteCarloTreeSearch(env, model)
-
-# Gather Data
-NUM_GAMES = 1
-for _ in range(NUM_GAMES):    
+for g in range(NUM_GAMES):    
+    print(f"Starting game number: {g}")
+    gstep = 0
     while not terminal:
         state = env.get_string_representation()
         
@@ -50,11 +60,12 @@ for _ in range(NUM_GAMES):
         tree.nnet.train()
         with autocast():   
             policy_output, value_output = tree.nnet(observation[0]) # 8x8 => 1x8x8
-            policy_loss = tree.nnet.policy_loss(policy_output.squeeze(), torch.tensor(action).to('cuda'))
+            policy_loss = tree.nnet.policy_loss(policy_output.squeeze(), torch.tensor(action).to(DEVICE))
             value_loss = tree.nnet.val_loss(value_output.squeeze(), value.squeeze())
             loss = policy_loss + value_loss
             
-        print(f"current loss is: {loss}")
+        print(f"Game: {g} - Step: {gstep} - UCB: {value} - TotalLoss: {loss} - PolicyLoss: {policy_loss} - ValueLoss: {value_loss}")
+        wandb.log({"policy_loss": policy_loss, "value_loss": value_loss, "total_loss": loss, "UCB": value})
 
         # AMP with gradient clipping
         tree.nnet.optimizer.zero_grad()
@@ -65,6 +76,8 @@ for _ in range(NUM_GAMES):
         grad_scaler.update()
         
         observation, reward, terminal, truncated, info = env.step(action)
+        
+        gstep += 1
 
 env.close()
 
