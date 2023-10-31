@@ -25,16 +25,16 @@ class MonteCarloTreeSearch:
 
         self._current_player = {}
         self._previous_player = {}
+    
+    def reset(self):
+        self._quality_states_actions = {}
+        self._number_of_visits_states_actions = {}
+        self._number_of_visits_states = {}
+        self._is_terminal_states = {}
+        self._legal_actions_states = {}
 
-    def __getstate__(self):
-        # NOTE: from pickling docs. Removes nnet (unpickleable)
-        # Copy the object's state from self.__dict__ which contains
-        # all our instance attributes. Always use the dict.copy()
-        # method to avoid modifying the original state.
-        state = self.__dict__.copy()
-        # Remove the unpicklable entries.
-        del state['nnet']
-        return state
+        self._current_player = {}
+        self._previous_player = {}
 
     def search(self, init_state, init_obs, simulations_number=10_000):
         for itr in range(simulations_number):
@@ -48,7 +48,6 @@ class MonteCarloTreeSearch:
         return self.best_action(init_state, c_param=0.)
 
     def search_iteration(self, game_state, game_obs, traversal_queue=None, c_param=1.4):
-
         state = game_state.get_string_representation()
 
         if traversal_queue is not None:
@@ -115,13 +114,14 @@ class MonteCarloTreeSearch:
         best_ucb = -np.inf
         best_action = None
         # find highest ucb action
+        N = self._number_of_visits_states[state]
+        LOGN = np.log(N)
         for action in self._legal_actions_states[state]:
-            N = self._number_of_visits_states[state]
 
             if (action, state) in self._quality_states_actions:
                 q = self._quality_states_actions[(action, state)]
                 n = self._number_of_visits_states_actions[(action, state)]
-                ucb = (q / n) + c_param * np.sqrt((np.log(N) / n))
+                ucb = (q / n) + c_param * np.sqrt(LOGN / n)
             else:
                 ucb = np.inf
 
