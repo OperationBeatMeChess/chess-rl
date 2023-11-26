@@ -32,13 +32,26 @@ class MonteCarloTreeSearch:
         self._current_player = {}
         self._previous_player = {}
 
+    def get_action_probabilities(self, state):
+        legal_actions = self._legal_actions_states[state]
+        action_probs = {
+            action: self._number_of_visits_states_actions.get((action, state), 1e-8)
+            for action in legal_actions
+        }
+        total_visits = sum(action_probs.values())
+        action_probs = {
+            action: (count / total_visits) for action, count in action_probs.items()
+        }
+        best_action = max(action_probs, key=action_probs.get)
+        return action_probs, best_action
+    
     def search(self, init_state, init_obs, simulations_number=10_000):
         for itr in range(simulations_number):
             self.game_state.set_string_representation(init_state)
             self.search_iteration(self.game_state, game_obs=init_obs)
 
         self.game_state.set_string_representation(init_state)
-        return self.best_action(init_state, c_param=0.)
+        return self.get_action_probabilities(init_state)
 
     def search_iteration(self, game_state, game_obs, c_param=1.4):
         state = game_state.get_string_representation()
