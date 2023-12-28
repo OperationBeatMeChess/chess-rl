@@ -84,12 +84,14 @@ class ReplayBuffer:
 class ReplayBufferManager(BaseManager):
     pass
 
+
 class GameCounter():
     def __init__(self):
         self.count = 0
 
     def increment(self):
         self.count += 1
+
 
 class TestProxy(NamespaceProxy):
     # We need to expose the same __dunder__ methods as NamespaceProxy,
@@ -131,6 +133,7 @@ class ChessReplayDataset(Dataset):
     def get_state(self):
         return {'replay_buffer': self.replay_buffer}
 
+
 def create_sparse_vector(action_probs):
     # Initialize a list of zeros for all possible actions
     sparse_vector = [0.] * 4672
@@ -141,6 +144,7 @@ def create_sparse_vector(action_probs):
         sparse_vector[action] = prob
     
     return sparse_vector
+
 
 def torch_safesave(state_dict, path, file_lock):
     with file_lock:
@@ -169,6 +173,7 @@ def run_single_game(model_state, global_counter):
     model_state = align_state_dict_keys(model_state)
     model.load_state_dict(model_state)
     model = model.cuda()
+    model.train()
 
     tree = MonteCarloTreeSearch(env, model)
 
@@ -181,18 +186,17 @@ def run_single_game(model_state, global_counter):
     while not terminal:
         state = env.get_string_representation()
 
-        action_probs, best_action = tree.search(state, observation, simulations_number=600)
+        action_probs, best_action = tree.search(state, observation, simulations_number=625)
 
         g_actions.append(action_probs)
         g_states.append(observation[0])
 
         observation, reward, terminal, truncated, info = env.step(best_action)
-    
-    env.close()
-    
+        
     global_counter.increment()
     print(f"Game {global_counter.count} over")
     return g_states, g_actions, reward
+
 
 def load_best_model(initial_model_state, path, file_lock):
     """ Loads and returns best model from savepath if exists. Otherwise returns initial state."""
@@ -200,10 +204,11 @@ def load_best_model(initial_model_state, path, file_lock):
         return torch_safeload(path, file_lock)
     return initial_model_state
     
+
 def run_games_continuously(initial_model_state, best_model_state_path, replay_buffer, games_in_parallel, lock, file_lock, global_counter, shutdown_event):
     with Pool(processes=games_in_parallel) as pool:
         while not shutdown_event.is_set():
-            # Load current model
+            # Load current best model
             model_state = load_best_model(initial_model_state, best_model_state_path, file_lock)
             # Start games in parallel without blocking. Each game runs in a separate process.
             async_results = [pool.apply_async(run_single_game, args=(model_state, global_counter)) for _ in range(games_in_parallel)]
@@ -217,13 +222,6 @@ def run_games_continuously(initial_model_state, best_model_state_path, replay_bu
                 finally:
                     lock.release()
 
-
-
-
-
-# NOTE: FOR WHEN WE HAVE MORE GPU POWERS
-
-from multiprocessing import Pool
 
 WIN_POINTS = 1
 LOSS_POINTS = 0
@@ -252,8 +250,6 @@ def play_game(white, black, perspective = None, num_sims = 100):
 
         obs, reward, done, _, _ = env.step(best_action)
         step += 1
-    
-    env.close()
 
     # Return points for win/loss/draw
     if reward == 0:
@@ -341,7 +337,7 @@ def run_training_epoch(curr_model_path, selfplay_dataset, expert_dataset, datase
         indices = random.sample(range(len(selfplay_dataset)), dataset_size)
         train_dataset = torch.utils.data.Subset(selfplay_dataset, indices)
 
-    train_loader = DataLoader(train_dataset, batch_size=48, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=96, shuffle=True)
 
     # Train for one epoch
     for i, (states_batch, actions_batch, values_batch) in enumerate(train_loader):
